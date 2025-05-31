@@ -10,5 +10,6 @@ dependencies = [
     "django-cotton>=2.1.2",
     "django-htmx>=1.23.0",
     "django-tailwind[reload]>=4.0.1",
+    "pillow>=11.2.1",
     "tzdata>=2025.2",
 ]
