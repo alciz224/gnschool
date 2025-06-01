@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 
 class TimeStampedModelWithUser(models.Model):
     """
@@ -312,3 +313,168 @@ class Classroom(TimeStampedModelWithUser):
         if self.grade_option:
             return f"{self.school_year_level.level.name} {self.grade_option.abbreviation} {self.name}"
         return f"{self.school_year_level.level.name} - {self.name}"
+
+
+
+class Subject(TimeStampedModelWithUser):
+    """
+    Représente une matière définie pour une année scolaire spécifique dans un établissement donné.
+    Exemple : 'Mathématiques' pour l'année 2024-2025 du Collège Sainte-Marie.
+    """
+    school_year = models.ForeignKey(
+        SchoolYear,
+        on_delete=models.CASCADE,
+        related_name="subjects",
+        verbose_name=_("Année scolaire")
+    )
+    name = models.CharField(
+        max_length=100,
+        verbose_name=_("Nom de la matière")
+    )
+
+    class Meta:
+        verbose_name = _("Matière annuelle")
+        verbose_name_plural = _("Matières annuelles")
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["school_year", "name"],
+                name="unique_subject_per_year"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.school_year.name})"
+
+
+class ClassroomSubject(TimeStampedModelWithUser):
+    """
+    Lien entre une matière et une classe pour une année scolaire,
+    avec un coefficient et potentiellement un enseignant assigné.
+    """
+    classroom = models.ForeignKey(
+        "core.Classroom",
+        on_delete=models.CASCADE,
+        related_name="classroom_subjects",
+        verbose_name=_("Classe")
+    )
+    subject = models.ForeignKey(
+        "core.Subject",
+        on_delete=models.CASCADE,
+        related_name="classroom_subjects",
+        verbose_name=_("Matière")
+    )
+    coefficient = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=1.0,
+        validators=[MinValueValidator(0.01)],
+        verbose_name=_("Coefficient")
+    )
+
+    class Meta:
+        verbose_name = _("Matière en classe")
+        verbose_name_plural = _("Matières en classe")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["classroom", "subject"],
+                name="unique_subject_per_classroom"
+            )
+        ]
+
+    def clean(self):
+        # Vérifier la correspondance des écoles et années scolaires
+        classroom_sy = self.classroom.school_year_level.school_year
+        subject_sy = self.subject.school_year
+
+        if subject_sy != classroom_sy:
+            raise ValidationError(
+                _("La matière et la classe doivent appartenir à la même année scolaire.")
+            )
+
+        if subject_sy.school != classroom_sy.school:
+            raise ValidationError(
+                _("La matière et la classe doivent appartenir au même établissement.")
+            )
+
+        if self.coefficient <= 0:
+            raise ValidationError(
+                _("Le coefficient doit être un nombre positif.")
+            )
+
+    def __str__(self):
+        return f"{self.subject.name} - {self.classroom.name}"
+
+
+class Teacher(TimeStampedModelWithUser):
+    """
+    Représente un enseignant pour une année scolaire donnée.
+    Un même utilisateur peut être enseignant dans plusieurs écoles, mais pas dans la même SchoolYear.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="teacher_profiles",
+        verbose_name=_("Utilisateur"),
+    )
+    school_year = models.ForeignKey(
+        SchoolYear,
+        on_delete=models.CASCADE,
+        related_name="teachers",
+        verbose_name=_("Année scolaire"),
+    )
+
+    class Meta:
+        verbose_name = _("Enseignant")
+        verbose_name_plural = _("Enseignants")
+        unique_together = ("user", "school_year")  # Un enseignant par année scolaire
+
+    def __str__(self):
+        return f"{self.user.first_name} - {self.school_year.name}"
+
+    def clean(self):
+        # Vérifie que l'utilisateur appartient bien à l'école de l'année scolaire
+        if hasattr(self.user, "student_profiles"):
+            if self.user.student_profiles.filter(school_year=self.school_year).exists():
+                raise ValidationError(
+                    _("Un utilisateur ne peut pas être enseignant dans une année scolaire où il est élève.")
+                )
+
+class Student(TimeStampedModelWithUser):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='student_profile')
+    classroom = models.ForeignKey(Classroom, on_delete=models.CASCADE, related_name='students', verbose_name=_("Classe"))
+    schoolyear = models.ForeignKey(SchoolYear, on_delete=models.CASCADE, related_name='students', verbose_name=_("Année scolaire"))
+    enrollment_number = models.CharField(_("Numéro d'inscription"), max_length=30, unique=True)
+
+    class Meta:
+        unique_together = ('user', 'schoolyear')
+        verbose_name = _("Élève")
+        verbose_name_plural = _("Élèves")
+
+    def clean(self):
+        if self.classroom.school_year_level.school_year != self.schoolyear:
+            raise ValidationError(_("La classe sélectionnée ne correspond pas à l'année scolaire de l'inscription."))
+
+        if self.classroom.school_year_level.grade.school != self.schoolyear.school:
+            raise ValidationError(_("La classe ne correspond pas à l’école de l’année scolaire."))
+
+        # Vérifier que l'utilisateur n'est pas enseignant dans cette même classe
+        teacher_profile = getattr(self.user, 'teacher_profile', None)
+        if teacher_profile:
+            from core.models import ClassroomSubject
+            is_teacher_here = ClassroomSubject.objects.filter(
+                classroom=self.classroom,
+                teacher=teacher_profile
+            ).exists()
+            if is_teacher_here:
+                raise ValidationError(_("Un utilisateur ne peut pas être enseignant dans une classe où il est aussi élève."))
+
+    def __str__(self):
+        return f"{self.user.first_name} - {self.classroom} - {self.schoolyear.name}"
+
+
+
+
+
+

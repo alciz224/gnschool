@@ -11,10 +11,10 @@ from core.models import (
      SchoolYear,
      SchoolYearLevel,
      Classroom,
-    # Subject,
-    # ClassroomSubject,
-    # Teacher,
-    # Student,
+     Subject,
+     ClassroomSubject,
+     Teacher,
+     Student,
     # Enrollment,
     # EvalType,
     # MarkType,
@@ -154,4 +154,69 @@ class ClassroomAdmin(admin.ModelAdmin):
     list_filter = ("school_year_level__school_year", "school_year_level__grade", "grade_option")
     search_fields = ("name",)
     autocomplete_fields = ("school_year_level", "grade_option", "created_by", "updated_by")
+    readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
+
+
+
+@admin.register(Subject)
+class SubjectAdmin(admin.ModelAdmin):
+    list_display = (
+        "name", 
+        "school_year", 
+        "created_at", 
+        "created_by", 
+        "updated_at", 
+        "updated_by"
+    )
+    list_filter = ("school_year",)
+    search_fields = ("name", "school_year__name")
+    ordering = ("name",)
+    readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(ClassroomSubject)
+class ClassroomSubjectAdmin(admin.ModelAdmin):
+    list_display = (
+        "subject", 
+        "classroom", 
+        "coefficient",
+        "created_at", 
+        "created_by", 
+        "updated_at", 
+        "updated_by"
+    )
+    list_filter = ("classroom__school_year_level__school_year",)
+    search_fields = (
+        "subject__name", 
+        "classroom__name", 
+        "classroom__school_year_level__school_year__name"
+    )
+    ordering = ("classroom__name", "subject__name")
+    readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(Teacher)
+class TeacherAdmin(admin.ModelAdmin):
+    list_display = ('user', 'school_year', 'created_at', 'created_by')
+    search_fields = ('user__first_name', 'user__last_name', 'school_year__name')
+    list_filter = ('school_year',)
+    readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
+
+@admin.register(Student)
+class StudentAdmin(admin.ModelAdmin):
+    list_display = ('user', 'classroom', 'schoolyear', 'enrollment_number', 'created_at', 'created_by')
+    search_fields = ('user__first_name', 'user__last_name', 'enrollment_number')
+    list_filter = ('schoolyear', 'classroom')
     readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
